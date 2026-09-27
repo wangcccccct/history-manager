@@ -1,0 +1,11 @@
+body.locked>header,body.locked>main{display:none}
+.auth{min-height:100vh;display:grid;place-items:center}
+.auth-box{width:min(380px,calc(100% - 32px));padding:30px;text-align:center;background:#fff;border:1px solid #dfe3e1;border-radius:8px}
+.auth-box .mark{margin:0 auto 18px}
+.auth-box h1{margin:0;font-size:23px}
+.auth-box p{color:#74808a;font-size:13px;line-height:1.5}
+.auth-box input{display:block;width:100%;margin:9px 0;padding:11px;border:1px solid #d2d9d5;border-radius:6px}
+.auth-box button{width:100%;background:#1d252c;color:#fff;border-color:#1d252c}
+.auth-error{min-height:18px;color:#ad453c!important}
+.auth[hidden]{display:none}
+.header-actions{display:flex;gap:8px}
