@@ -2,6 +2,22 @@
 
 A lightweight Chrome extension for controlling browser history by domain.
 
+## Attribution
+
+This project is based on [Hide My History](https://github.com/monokaijs/hide-my-history) by [Edward Nguyen (@monokaijs)](https://github.com/monokaijs). See the upstream repository for the original project.
+
+## Changes from upstream
+
+- Rebuilt the extension as a lightweight, dependency-free Manifest V3 project using plain JavaScript, HTML, and CSS. It can be loaded unpacked in Chrome without installing packages or running a build step.
+- Reworked the interface into a focused settings page and popup, with light, dark, and system themes.
+- Expanded domain rules to match a host and its subdomains. Rules can also target protocol URLs (including non-web URLs), or use regular expressions against the full URL.
+- Kept the upstream blacklist/whitelist behavior and added a per-whitelist option to save or discard matching visits from the hidden-history vault.
+- Reworked password protection and encryption. A password-derived key protects the private key; each saved visit is encrypted with AES-GCM and its random data key is wrapped with RSA-OAEP. The password is not stored.
+- Added migration for records encrypted with the earlier shared AES key format, when setting up password protection.
+- Kept hidden visits in Chrome local storage, capped the vault at 100 records, and added a clear-all action.
+
+The upstream project also has a searchable hidden-history view and per-entry removal; those controls are not currently included here. Per-tab incognito mode is also not implemented in this project.
+
 ## Features
 
 - Hide new visits globally or only for selected domains.
