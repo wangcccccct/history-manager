@@ -5,7 +5,7 @@ const MENU = {
 };
 
 const DEFAULTS = {
-  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto" },
+  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto", historyLimit: 100 },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -165,8 +165,27 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 chrome.runtime.onStartup.addListener(() => {
   void ensureMenus();
+  void trimHiddenHistory();
 });
 void ensureMenus();
+
+function historyLimit(settings) {
+  const limit = Number(settings.historyLimit);
+  return Number.isInteger(limit) ? Math.min(10000, Math.max(1, limit)) : 100;
+}
+
+async function trimHiddenHistory() {
+  try {
+    const state = await getState();
+    const limit = historyLimit(state.settings);
+    if (state.vault.records.length > limit) {
+      state.vault.records = state.vault.records.slice(0, limit);
+      await save({ vault: state.vault });
+    }
+  } catch (error) {
+    console.error("Could not limit the number of hidden history records:", error);
+  }
+}
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId).then(refreshMenus).catch(() => {});
@@ -244,7 +263,7 @@ async function handleVisit(item, state) {
         time: item.lastVisitTime || Date.now()
       }),
       ...state.vault.records
-    ].slice(0, 100);
+    ].slice(0, historyLimit(state.settings));
     await save({ vault: state.vault });
   }
   try {

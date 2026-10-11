@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const DEFAULTS = {
-  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto" },
+  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto", historyLimit: 100 },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -158,6 +158,7 @@ async function load() {
   };
   state.settings.whitelistHistory = { ...(state.settings.whitelistHistory || {}) };
   state.settings.ruleTypes = { ...(state.settings.ruleTypes || {}) };
+  state.settings.historyLimit = normalizeHistoryLimit(state.settings.historyLimit);
   for (const [rule, isRegex] of Object.entries(state.settings.ruleRegex || {})) {
     if (isRegex && !state.settings.ruleTypes[rule]) state.settings.ruleTypes[rule] = "regex";
   }
@@ -185,6 +186,7 @@ async function render() {
   $("#theme").value = ["auto", "light", "dark"].includes(state.settings.theme)
     ? state.settings.theme
     : "auto";
+  $("#history-limit").value = state.settings.historyLimit;
   $("#mode").textContent = state.settings.enabled ? "On" : "Off";
   $("#blacklist-count").textContent = state.lists.blacklist.length;
   $("#whitelist-count").textContent = state.lists.whitelist.length;
@@ -209,6 +211,11 @@ async function render() {
       : `<span>${title}</span>`;
     return `<div class="history-row">${link}<time>${new Date(item.time).toLocaleString()}</time></div>`;
   }).join("");
+}
+
+function normalizeHistoryLimit(value) {
+  const limit = Number(value);
+  return Number.isInteger(limit) ? Math.min(10000, Math.max(1, limit)) : 100;
 }
 
 function applyTheme() {
@@ -315,6 +322,12 @@ $("#domains").addEventListener("change", async event => {
 $("#clear-history").addEventListener("click", async () => {
   state.vault.records = [];
   await chrome.storage.local.set({ vault: state.vault });
+  await render();
+});
+$("#history-limit").addEventListener("change", async () => {
+  state.settings.historyLimit = normalizeHistoryLimit($("#history-limit").value);
+  state.vault.records = state.vault.records.slice(0, state.settings.historyLimit);
+  await chrome.storage.local.set({ settings: state.settings, vault: state.vault });
   await render();
 });
 $("#add").addEventListener("click", () => {
