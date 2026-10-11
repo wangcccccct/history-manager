@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const DEFAULTS = {
-  settings: { enabled: false },
+  settings: { enabled: false, whitelistHistory: {}, ruleRegex: {}, theme: "auto" },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -156,6 +156,14 @@ async function load() {
     lists: { ...DEFAULTS.lists, ...data.lists },
     vault: { ...DEFAULTS.vault, ...data.vault }
   };
+  state.settings.whitelistHistory = { ...(state.settings.whitelistHistory || {}) };
+  state.settings.ruleRegex = { ...(state.settings.ruleRegex || {}) };
+  if (data.settings?.saveWhitelistHistory === false) {
+    for (const domain of state.lists.whitelist) {
+      if (!(domain in state.settings.whitelistHistory)) state.settings.whitelistHistory[domain] = false;
+    }
+    delete state.settings.saveWhitelistHistory;
+  }
   if (!state.vault.encryptedPrivateKey) {
     $("#lock").hidden = true;
     setAuthView("setup");
@@ -168,16 +176,19 @@ async function load() {
 }
 
 async function render() {
+  applyTheme();
   $("#enabled").checked = state.settings.enabled;
+  $("#theme").value = ["auto", "light", "dark"].includes(state.settings.theme)
+    ? state.settings.theme
+    : "auto";
   $("#mode").textContent = state.settings.enabled ? "On" : "Off";
   $("#blacklist-count").textContent = state.lists.blacklist.length;
   $("#whitelist-count").textContent = state.lists.whitelist.length;
   $("[data-tab=blacklist]").classList.toggle("active", activeTab === "blacklist");
   $("[data-tab=whitelist]").classList.toggle("active", activeTab === "whitelist");
-
   const domains = state.lists[activeTab];
   $("#domains").innerHTML = domains.length
-    ? domains.map(domain => `<div class="domain-row"><span>${escapeHtml(domain)}</span><button data-remove="${escapeHtml(domain)}" title="Remove domain">Remove</button></div>`).join("")
+    ? domains.map(rule => `<div class="domain-row"><span>${escapeHtml(rule)}</span><label class="domain-history-option"><input type="checkbox" data-rule-regex="${escapeHtml(rule)}" ${state.settings.ruleRegex[rule] ? "checked" : ""}><small>Regex</small></label>${activeTab === "whitelist" ? `<label class="domain-history-option"><input type="checkbox" data-whitelist-history="${escapeHtml(rule)}" ${state.settings.whitelistHistory[rule] === false ? "" : "checked"}><small>Save visits</small></label>` : ""}<button data-remove="${escapeHtml(rule)}" title="Remove rule">Remove</button></div>`).join("")
     : '<div class="empty">No domains in this list.</div>';
 
   if (!state.vault.records.length) {
@@ -188,14 +199,35 @@ async function render() {
   $("#history").innerHTML = results.map(result => {
     if (result.status === "rejected") return '<div class="history-row">Unable to decrypt this visit.</div>';
     const item = result.value;
-    return `<div class="history-row"><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(item.title || item.url)}</a><time>${new Date(item.time).toLocaleString()}</time></div>`;
+    const title = escapeHtml(item.title || item.url);
+    const link = canOpenHistoryUrl(item.url)
+      ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${title}</a>`
+      : `<span>${title}</span>`;
+    return `<div class="history-row">${link}<time>${new Date(item.time).toLocaleString()}</time></div>`;
   }).join("");
+}
+
+function applyTheme() {
+  const theme = state.settings.theme || "auto";
+  document.documentElement.dataset.theme = theme === "auto"
+    ? window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+    : theme;
 }
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, char => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[char]);
+}
+
+function canOpenHistoryUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ||
+      url.protocol === "chrome-extension:" && url.host === chrome.runtime.id;
+  } catch {
+    return false;
+  }
 }
 
 async function saveRules() {
@@ -247,15 +279,33 @@ $("#enabled").addEventListener("change", () => {
   state.settings.enabled = $("#enabled").checked;
   void saveRules();
 });
+$("#theme").addEventListener("change", () => {
+  state.settings.theme = $("#theme").value;
+  applyTheme();
+  void saveRules();
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if ((state.settings.theme || "auto") === "auto") applyTheme();
+});
 $("#save").addEventListener("click", () => void saveRules());
 document.querySelectorAll("[data-tab]").forEach(button => button.addEventListener("click", () => {
   activeTab = button.dataset.tab;
   void render();
 }));
 $("#domains").addEventListener("click", async event => {
-  const domain = event.target.dataset.remove;
-  if (!domain) return;
-  state.lists[activeTab] = state.lists[activeTab].filter(item => item !== domain);
+  const rule = event.target.dataset.remove;
+  if (!rule) return;
+  state.lists[activeTab] = state.lists[activeTab].filter(item => item !== rule);
+  delete state.settings.whitelistHistory[rule];
+  delete state.settings.ruleRegex[rule];
+  await saveRules();
+});
+$("#domains").addEventListener("change", async event => {
+  const historyRule = event.target.dataset.whitelistHistory;
+  const regexRule = event.target.dataset.ruleRegex;
+  if (historyRule) state.settings.whitelistHistory[historyRule] = event.target.checked;
+  else if (regexRule) state.settings.ruleRegex[regexRule] = event.target.checked;
+  else return;
   await saveRules();
 });
 $("#clear-history").addEventListener("click", async () => {
@@ -265,24 +315,58 @@ $("#clear-history").addEventListener("click", async () => {
 });
 $("#add").addEventListener("click", () => {
   $("#domain").value = "";
+  $("#domain").placeholder = "example.com, localhost, or a protocol URL";
   $("#kind").value = activeTab;
+  $("#domain-regex").checked = false;
+  $("#domain-error").textContent = "";
   $("#dialog").showModal();
 });
 $("#cancel").addEventListener("click", () => $("#dialog").close());
+$("#domain-regex").addEventListener("change", () => {
+  $("#domain").placeholder = $("#domain-regex").checked
+    ? "Regular expression for the full URL"
+    : "example.com, localhost, or a protocol URL";
+  $("#domain-error").textContent = "";
+});
 $("#domain-form").addEventListener("submit", async event => {
   event.preventDefault();
-  const input = $("#domain").value.trim().toLowerCase();
-  let domain;
-  try {
-    domain = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(input) ? input : `https://${input}`).hostname;
-  } catch {
-    return;
+  const input = $("#domain").value.trim();
+  const regexMode = $("#domain-regex").checked;
+  let rule;
+  if (regexMode) {
+    try {
+      new RegExp(input);
+      rule = input;
+    } catch {
+      $("#domain-error").textContent = "Enter a valid regular expression.";
+      return;
+    }
+  } else {
+    try {
+      if (/^[a-z][a-z\d+.-]*:(?!\d)/i.test(input)) {
+        const parsed = new URL(input);
+        rule = parsed.hostname
+          ? ["http:", "https:"].includes(parsed.protocol)
+            ? parsed.hostname.toLowerCase()
+            : `${parsed.protocol}//${parsed.hostname.toLowerCase()}`
+          : parsed.href;
+      } else {
+        rule = new URL(`https://${input}`).hostname.toLowerCase();
+      }
+      if (!rule || /\s/.test(rule)) throw new Error("Invalid rule");
+    } catch {
+      $("#domain-error").textContent = "Enter a valid host or URL.";
+      return;
+    }
   }
-  if (!domain.includes(".") || !/^[a-z0-9.-]+$/.test(domain)) return;
   const kind = $("#kind").value;
-  state.lists.blacklist = state.lists.blacklist.filter(item => item !== domain);
-  state.lists.whitelist = state.lists.whitelist.filter(item => item !== domain);
-  state.lists[kind].push(domain);
+  state.lists.blacklist = state.lists.blacklist.filter(item => item !== rule);
+  state.lists.whitelist = state.lists.whitelist.filter(item => item !== rule);
+  state.settings.ruleRegex[rule] = regexMode;
+  if (kind === "whitelist" && !(rule in state.settings.whitelistHistory)) {
+    state.settings.whitelistHistory[rule] = true;
+  }
+  state.lists[kind].push(rule);
   activeTab = kind;
   $("#dialog").close();
   await saveRules();

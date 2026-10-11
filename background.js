@@ -5,7 +5,7 @@ const MENU = {
 };
 
 const DEFAULTS = {
-  settings: { enabled: false },
+  settings: { enabled: false, whitelistHistory: {}, ruleRegex: {}, theme: "auto" },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -71,14 +71,57 @@ void updateActionIcon();
 function domainOf(url) {
   try {
     const parsed = new URL(url);
-    return ["http:", "https:"].includes(parsed.protocol) ? parsed.hostname : "";
+    if (!parsed.hostname) return parsed.href;
+    return ["http:", "https:"].includes(parsed.protocol)
+      ? parsed.hostname
+      : `${parsed.protocol}//${parsed.hostname}`;
   } catch {
     return "";
   }
 }
 
-function contains(list, domain) {
-  return list.includes(domain) || list.some(item => domain.endsWith(`.${item}`));
+function hostMatches(host, ruleHost) {
+  return host === ruleHost || host.endsWith(`.${ruleHost}`);
+}
+
+function hasUrlScheme(value) {
+  return /^[a-z][a-z\d+.-]*:(?!\d)/i.test(value);
+}
+
+function ruleMatches(rule, url, settings) {
+  if (settings.ruleRegex?.[rule]) {
+    try {
+      return new RegExp(rule).test(url);
+    } catch {
+      return false;
+    }
+  }
+
+  let actual;
+  try {
+    actual = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (hasUrlScheme(rule)) {
+    let target;
+    try {
+      target = new URL(rule);
+    } catch {
+      return false;
+    }
+    if (!target.hostname) return actual.href === target.href;
+    const webRule = ["http:", "https:"].includes(target.protocol);
+    return (webRule || actual.protocol === target.protocol) &&
+      hostMatches(actual.hostname.toLowerCase(), target.hostname.toLowerCase());
+  }
+
+  return !!actual.hostname && hostMatches(actual.hostname.toLowerCase(), rule.toLowerCase());
+}
+
+function matchingRule(list, url, settings) {
+  return list.find(rule => ruleMatches(rule, url, settings));
 }
 
 async function refreshMenus(tab) {
@@ -86,8 +129,8 @@ async function refreshMenus(tab) {
   const domain = domainOf(tab?.url || "");
   await Promise.all([
     chrome.contextMenus.update(MENU.toggle, { checked: state.settings.enabled }),
-    chrome.contextMenus.update(MENU.blacklist, { checked: !!domain && contains(state.lists.blacklist, domain) }),
-    chrome.contextMenus.update(MENU.whitelist, { checked: !!domain && contains(state.lists.whitelist, domain) })
+    chrome.contextMenus.update(MENU.blacklist, { checked: !!domain && !!matchingRule(state.lists.blacklist, tab?.url || "", state.settings) }),
+    chrome.contextMenus.update(MENU.whitelist, { checked: !!domain && !!matchingRule(state.lists.whitelist, tab?.url || "", state.settings) })
   ]).catch(() => {});
 }
 
@@ -114,8 +157,12 @@ async function ensureMenus() {
   return menuSetup;
 }
 
-chrome.runtime.onInstalled.addListener(() => void ensureMenus());
-chrome.runtime.onStartup.addListener(() => void ensureMenus());
+chrome.runtime.onInstalled.addListener(() => {
+  void ensureMenus();
+});
+chrome.runtime.onStartup.addListener(() => {
+  void ensureMenus();
+});
 void ensureMenus();
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
@@ -123,6 +170,12 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 });
 chrome.tabs.onUpdated.addListener((_, changeInfo, tab) => {
   if (changeInfo.url) void refreshMenus(tab);
+  if (changeInfo.status === "complete" && tab.url) {
+    try {
+      const protocol = new URL(tab.url).protocol;
+      if (!["http:", "https:"].includes(protocol)) queueSpecialUrlHistory(tab);
+    } catch {}
+  }
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -141,27 +194,44 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!list) return;
 
   const other = list === state.lists.blacklist ? state.lists.whitelist : state.lists.blacklist;
-  const index = list.indexOf(domain);
-  if (index >= 0) list.splice(index, 1);
+  const currentRule = matchingRule(list, tab?.url || "", state.settings);
+  const index = currentRule ? list.indexOf(currentRule) : list.indexOf(domain);
+  if (index >= 0) {
+    const [removed] = list.splice(index, 1);
+    delete state.settings.ruleRegex[removed];
+    delete state.settings.whitelistHistory[removed];
+  }
   else {
     list.push(domain);
+    delete state.settings.ruleRegex[domain];
     const otherIndex = other.indexOf(domain);
     if (otherIndex >= 0) other.splice(otherIndex, 1);
   }
-  await save({ lists: state.lists });
+  await save({ lists: state.lists, settings: state.settings });
   await refreshMenus(tab);
 });
 
 let visitQueue = Promise.resolve();
 
-async function handleVisit(item) {
+function visitShouldBeHidden(item, state) {
   const domain = domainOf(item.url);
-  if (!domain) return;
-  const state = await getState();
-  const keep = contains(state.lists.blacklist, domain);
-  const hide = state.settings.enabled && !keep || contains(state.lists.whitelist, domain);
-  if (hide) {
-    if (!state.vault.publicKey) return;
+  const keep = !!domain && !!matchingRule(state.lists.blacklist, item.url, state.settings);
+  const whitelistDomain = matchingRule(state.lists.whitelist, item.url, state.settings);
+  return {
+    hide: state.settings.enabled && !keep || !!whitelistDomain,
+    saveVisit: !whitelistDomain || (state.settings.whitelistHistory || {})[whitelistDomain] !== false
+  };
+}
+
+async function handleVisit(item, state) {
+  if (!state) state = await getState();
+  const { hide, saveVisit } = visitShouldBeHidden(item, state);
+  if (!hide) return false;
+  if (saveVisit && !state.vault.publicKey) {
+    console.warn("Skipped deleting matching history because hidden-history password setup is incomplete.");
+    return false;
+  }
+  if (saveVisit) {
     state.vault.records = [
       await encryptRecord(state, {
         url: item.url,
@@ -171,8 +241,24 @@ async function handleVisit(item) {
       ...state.vault.records
     ].slice(0, 100);
     await save({ vault: state.vault });
-    await chrome.history.deleteUrl({ url: item.url });
   }
+  try {
+    await chrome.history.deleteUrl({ url: item.url });
+    return true;
+  } catch (error) {
+    console.error("Could not delete browser history URL:", item.url, error);
+    throw error;
+  }
+}
+
+function queueSpecialUrlHistory(tab) {
+  visitQueue = visitQueue.then(async () => {
+    const items = await chrome.history.search({ text: tab.url, startTime: 0, maxResults: 20 });
+    const item = items.find(result => result.url === tab.url);
+    if (item) await handleVisit(item);
+  }).catch(error => {
+    console.error("Could not process special-protocol history URL:", tab.url, error);
+  });
 }
 
 chrome.history.onVisited.addListener(item => {
