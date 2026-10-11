@@ -5,7 +5,7 @@ const MENU = {
 };
 
 const DEFAULTS = {
-  settings: { enabled: false, whitelistHistory: {}, ruleRegex: {}, theme: "auto" },
+  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto" },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -89,13 +89,16 @@ function hasUrlScheme(value) {
 }
 
 function ruleMatches(rule, url, settings) {
-  if (settings.ruleRegex?.[rule]) {
+  const type = settings.ruleTypes?.[rule] || (settings.ruleRegex?.[rule] ? "regex" : "domain");
+  if (type === "regex") {
     try {
       return new RegExp(rule).test(url);
     } catch {
       return false;
     }
   }
+
+  if (type === "keyword") return url.toLowerCase().includes(rule.toLowerCase());
 
   let actual;
   try {
@@ -199,11 +202,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (index >= 0) {
     const [removed] = list.splice(index, 1);
     delete state.settings.ruleRegex[removed];
+    delete state.settings.ruleTypes[removed];
     delete state.settings.whitelistHistory[removed];
   }
   else {
     list.push(domain);
     delete state.settings.ruleRegex[domain];
+    state.settings.ruleTypes[domain] = "domain";
     const otherIndex = other.indexOf(domain);
     if (otherIndex >= 0) other.splice(otherIndex, 1);
   }

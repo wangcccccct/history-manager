@@ -1,6 +1,6 @@
 # History Manager
 
-A lightweight Chrome extension for controlling browser history by domain.
+A lightweight Chrome extension for controlling browser history with domain, regular-expression, and keyword rules.
 
 ## Attribution
 
@@ -10,7 +10,7 @@ This project is based on [Hide My History](https://github.com/monokaijs/hide-my-
 
 - Rebuilt the extension as a lightweight, dependency-free Manifest V3 project using plain JavaScript, HTML, and CSS. It can be loaded unpacked in Chrome without installing packages or running a build step.
 - Reworked the interface into a focused settings page and popup, with light, dark, and system themes.
-- Expanded domain rules to match a host and its subdomains. Rules can also target protocol URLs (including non-web URLs), or use regular expressions against the full URL.
+- Added three selectable rule types: domain matching (host and subdomains, including protocol URLs), regular expressions against the full URL, and case-insensitive keyword matching anywhere in the full URL.
 - Kept the upstream blacklist/whitelist behavior and added a per-whitelist option to save or discard matching visits from the hidden-history vault.
 - Reworked password protection and encryption. A password-derived key protects the private key; each saved visit is encrypted with AES-GCM and its random data key is wrapped with RSA-OAEP. The password is not stored.
 - Added migration for records encrypted with the earlier shared AES key format, when setting up password protection.

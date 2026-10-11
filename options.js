@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const DEFAULTS = {
-  settings: { enabled: false, whitelistHistory: {}, ruleRegex: {}, theme: "auto" },
+  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto" },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -157,7 +157,11 @@ async function load() {
     vault: { ...DEFAULTS.vault, ...data.vault }
   };
   state.settings.whitelistHistory = { ...(state.settings.whitelistHistory || {}) };
-  state.settings.ruleRegex = { ...(state.settings.ruleRegex || {}) };
+  state.settings.ruleTypes = { ...(state.settings.ruleTypes || {}) };
+  for (const [rule, isRegex] of Object.entries(state.settings.ruleRegex || {})) {
+    if (isRegex && !state.settings.ruleTypes[rule]) state.settings.ruleTypes[rule] = "regex";
+  }
+  delete state.settings.ruleRegex;
   if (data.settings?.saveWhitelistHistory === false) {
     for (const domain of state.lists.whitelist) {
       if (!(domain in state.settings.whitelistHistory)) state.settings.whitelistHistory[domain] = false;
@@ -188,7 +192,7 @@ async function render() {
   $("[data-tab=whitelist]").classList.toggle("active", activeTab === "whitelist");
   const domains = state.lists[activeTab];
   $("#domains").innerHTML = domains.length
-    ? domains.map(rule => `<div class="domain-row"><span>${escapeHtml(rule)}</span><label class="domain-history-option"><input type="checkbox" data-rule-regex="${escapeHtml(rule)}" ${state.settings.ruleRegex[rule] ? "checked" : ""}><small>Regex</small></label>${activeTab === "whitelist" ? `<label class="domain-history-option"><input type="checkbox" data-whitelist-history="${escapeHtml(rule)}" ${state.settings.whitelistHistory[rule] === false ? "" : "checked"}><small>Save visits</small></label>` : ""}<button data-remove="${escapeHtml(rule)}" title="Remove rule">Remove</button></div>`).join("")
+    ? domains.map(rule => `<div class="domain-row"><span>${escapeHtml(rule)}</span><select class="rule-type-select" data-rule-type="${escapeHtml(rule)}" aria-label="Match type for ${escapeHtml(rule)}"><option value="domain" ${(state.settings.ruleTypes[rule] || "domain") === "domain" ? "selected" : ""}>Domain</option><option value="regex" ${state.settings.ruleTypes[rule] === "regex" ? "selected" : ""}>Regex</option><option value="keyword" ${state.settings.ruleTypes[rule] === "keyword" ? "selected" : ""}>Keyword</option></select>${activeTab === "whitelist" ? `<label class="domain-history-option"><input type="checkbox" data-whitelist-history="${escapeHtml(rule)}" ${state.settings.whitelistHistory[rule] === false ? "" : "checked"}><small>Save visits</small></label>` : ""}<button data-remove="${escapeHtml(rule)}" title="Remove rule">Remove</button></div>`).join("")
     : '<div class="empty">No domains in this list.</div>';
 
   if (!state.vault.records.length) {
@@ -297,14 +301,14 @@ $("#domains").addEventListener("click", async event => {
   if (!rule) return;
   state.lists[activeTab] = state.lists[activeTab].filter(item => item !== rule);
   delete state.settings.whitelistHistory[rule];
-  delete state.settings.ruleRegex[rule];
+  delete state.settings.ruleTypes[rule];
   await saveRules();
 });
 $("#domains").addEventListener("change", async event => {
   const historyRule = event.target.dataset.whitelistHistory;
-  const regexRule = event.target.dataset.ruleRegex;
+  const typedRule = event.target.dataset.ruleType;
   if (historyRule) state.settings.whitelistHistory[historyRule] = event.target.checked;
-  else if (regexRule) state.settings.ruleRegex[regexRule] = event.target.checked;
+  else if (typedRule) state.settings.ruleTypes[typedRule] = event.target.value;
   else return;
   await saveRules();
 });
@@ -315,25 +319,38 @@ $("#clear-history").addEventListener("click", async () => {
 });
 $("#add").addEventListener("click", () => {
   $("#domain").value = "";
-  $("#domain").placeholder = "example.com, localhost, or a protocol URL";
+  $("#domain").placeholder = "example.com, a keyword, or a full-URL regular expression";
   $("#kind").value = activeTab;
-  $("#domain-regex").checked = false;
+  $("#rule-type").value = "domain";
   $("#domain-error").textContent = "";
   $("#dialog").showModal();
 });
 $("#cancel").addEventListener("click", () => $("#dialog").close());
-$("#domain-regex").addEventListener("change", () => {
-  $("#domain").placeholder = $("#domain-regex").checked
-    ? "Regular expression for the full URL"
-    : "example.com, localhost, or a protocol URL";
+$("#rule-type").addEventListener("change", () => {
+  const placeholders = {
+    domain: "example.com, localhost, or a protocol URL",
+    regex: "Regular expression matching the full URL",
+    keyword: "Keyword contained in the full URL"
+  };
+  const descriptions = {
+    domain: "Matches a host and its subdomains.",
+    regex: "Evaluates a regular expression against the full URL.",
+    keyword: "Matches a case-insensitive keyword anywhere in the full URL, including its path and query."
+  };
+  $("#domain").placeholder = placeholders[$("#rule-type").value];
+  $("#rule-type-help").textContent = descriptions[$("#rule-type").value];
   $("#domain-error").textContent = "";
 });
 $("#domain-form").addEventListener("submit", async event => {
   event.preventDefault();
   const input = $("#domain").value.trim();
-  const regexMode = $("#domain-regex").checked;
+  const type = $("#rule-type").value;
   let rule;
-  if (regexMode) {
+  if (type === "regex") {
+    if (!input) {
+      $("#domain-error").textContent = "Enter a regular expression.";
+      return;
+    }
     try {
       new RegExp(input);
       rule = input;
@@ -341,6 +358,12 @@ $("#domain-form").addEventListener("submit", async event => {
       $("#domain-error").textContent = "Enter a valid regular expression.";
       return;
     }
+  } else if (type === "keyword") {
+    if (!input) {
+      $("#domain-error").textContent = "Enter a keyword.";
+      return;
+    }
+    rule = input;
   } else {
     try {
       if (/^[a-z][a-z\d+.-]*:(?!\d)/i.test(input)) {
@@ -362,7 +385,7 @@ $("#domain-form").addEventListener("submit", async event => {
   const kind = $("#kind").value;
   state.lists.blacklist = state.lists.blacklist.filter(item => item !== rule);
   state.lists.whitelist = state.lists.whitelist.filter(item => item !== rule);
-  state.settings.ruleRegex[rule] = regexMode;
+  state.settings.ruleTypes[rule] = type;
   if (kind === "whitelist" && !(rule in state.settings.whitelistHistory)) {
     state.settings.whitelistHistory[rule] = true;
   }
