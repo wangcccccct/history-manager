@@ -130,12 +130,14 @@ function matchingRule(list, url, settings) {
 
 const inheritedTabs = new Map();
 const temporaryTabs = new Set();
+const stoppedRuleTabs = new Map();
 const hiddenTabVisitRules = new Map();
 const pendingTabTracks = new Map();
 const tabNavigationUrls = new Map();
-const inheritanceReady = chrome.storage.session.get(["inheritedTabs", "temporaryTabs", "hiddenTabVisitRules", "tabNavigationUrls"]).then(({ inheritedTabs: savedTabs = {}, temporaryTabs: savedTemporaryTabs = [], hiddenTabVisitRules: savedVisits = {}, tabNavigationUrls: savedNavigations = {} }) => {
+const inheritanceReady = chrome.storage.session.get(["inheritedTabs", "temporaryTabs", "stoppedRuleTabs", "hiddenTabVisitRules", "tabNavigationUrls"]).then(({ inheritedTabs: savedTabs = {}, temporaryTabs: savedTemporaryTabs = [], stoppedRuleTabs: savedStoppedTabs = {}, hiddenTabVisitRules: savedVisits = {}, tabNavigationUrls: savedNavigations = {} }) => {
   for (const [tabId, rule] of Object.entries(savedTabs)) inheritedTabs.set(Number(tabId), rule);
   for (const tabId of savedTemporaryTabs) temporaryTabs.add(Number(tabId));
+  for (const [tabId, rule] of Object.entries(savedStoppedTabs)) stoppedRuleTabs.set(Number(tabId), rule);
   for (const [tabId, visits] of Object.entries(savedVisits)) hiddenTabVisitRules.set(Number(tabId), visits);
   for (const [tabId, urls] of Object.entries(savedNavigations)) tabNavigationUrls.set(Number(tabId), urls);
 });
@@ -157,6 +159,13 @@ async function setTemporaryTab(tabId, enabled) {
   if (enabled) temporaryTabs.add(tabId);
   else temporaryTabs.delete(tabId);
   await chrome.storage.session.set({ temporaryTabs: [...temporaryTabs] });
+}
+
+async function setStoppedRuleTab(tabId, rule) {
+  await inheritanceReady;
+  if (rule) stoppedRuleTabs.set(tabId, rule);
+  else stoppedRuleTabs.delete(tabId);
+  await chrome.storage.session.set({ stoppedRuleTabs: Object.fromEntries(stoppedRuleTabs) });
 }
 
 function inheritanceEnabled(rule, settings) {
@@ -222,6 +231,14 @@ function tabInheritanceForUrl(url, state) {
 
 async function inheritFromNavigationSource(sourceTabId, targetTabId, url) {
   await inheritanceReady;
+  const stoppedRule = stoppedRuleTabs.get(sourceTabId);
+  const state = await getState();
+  if (stoppedRule) {
+    if (tabInheritanceForUrl(url || "", state) === stoppedRule) {
+      await setStoppedRuleTab(targetTabId, stoppedRule);
+    }
+    return;
+  }
   let rule = tabHideRule(sourceTabId);
   const pendingTrack = pendingTabTracks.get(sourceTabId);
   if (!rule && pendingTrack) {
@@ -231,7 +248,6 @@ async function inheritFromNavigationSource(sourceTabId, targetTabId, url) {
   if (!rule) {
     try {
       const sourceTab = await chrome.tabs.get(sourceTabId);
-      const state = await getState();
       rule = tabInheritanceForUrl(sourceTab.url || "", state);
       if (rule) await setInheritedTab(sourceTabId, rule);
     } catch {}
@@ -251,6 +267,7 @@ async function trackTabVisit(tab) {
   if (!rule) {
     const state = await getState();
     rule = tabInheritanceForUrl(tab.url || "", state);
+    if (rule && stoppedRuleTabs.get(tab.id) === rule) rule = null;
     if (rule) await setInheritedTab(tab.id, rule);
   }
   if (rule) await setHiddenVisitRule(tab.id, tab.url, rule);
@@ -359,6 +376,7 @@ chrome.tabs.onRemoved.addListener(tabId => {
   pendingTabTracks.delete(tabId);
   void removeInheritedTab(tabId);
   void setTemporaryTab(tabId, false);
+  void setStoppedRuleTab(tabId, null);
   void clearTabNavigation(tabId);
   void clearTabVisitRules(tabId);
 });
@@ -374,17 +392,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "getTemporaryHideStatus") {
       const tab = await chrome.tabs.get(tabId);
       const state = await getState();
-      const ruleHidden = !!tabHideRule(tabId) || !!tabInheritanceForUrl(tab.url || "", state);
+      const detectedRule = tabInheritanceForUrl(tab.url || "", state);
+      const ruleHidden = (!!inheritedTabs.get(tabId) || !!detectedRule) && stoppedRuleTabs.get(tabId) !== (inheritedTabs.get(tabId) || detectedRule);
       return { enabled: current || ruleHidden, linkTrackingAvailable };
     }
     if (!linkTrackingAvailable) throw new Error("Reload the extension to grant webNavigation permission.");
 
     const state = await getState();
     if (!state.vault.publicKey) throw new Error("Set a password in settings to use history hiding.");
-    const enabled = !current;
-    await setTemporaryTab(tabId, enabled);
-    if (enabled) {
-      const tab = await chrome.tabs.get(tabId);
+    const tab = await chrome.tabs.get(tabId);
+    const detectedRule = tabInheritanceForUrl(tab.url || "", state);
+    const activeRule = inheritedTabs.get(tabId) || detectedRule;
+    const stopping = current || (!!activeRule && stoppedRuleTabs.get(tabId) !== activeRule);
+    if (stopping) {
+      await setTemporaryTab(tabId, false);
+      if (activeRule) {
+        await setStoppedRuleTab(tabId, activeRule);
+        await removeInheritedTab(tabId);
+        await clearTabVisitRules(tabId);
+      }
+      return { enabled: false };
+    }
+    await setStoppedRuleTab(tabId, null);
+    await setTemporaryTab(tabId, true);
+    if (!stopping) {
       await recordTabNavigation(tab);
       await setHiddenVisitRule(tabId, tab.url, TEMP_HIDE_RULE);
       if (tab.url) {
@@ -393,7 +424,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (item) await handleVisit({ ...item, title: tab.title || item.title || tab.url }, state);
       }
     }
-    return { enabled };
+    return { enabled: true };
   })().then(sendResponse).catch(error => {
     sendResponse({ error: error instanceof Error ? error.message : String(error) });
   });
@@ -449,12 +480,16 @@ function visitShouldBeHidden(item, state) {
   };
 }
 
-async function handleVisit(item, state) {
+async function handleVisit(item, state, sourceTabId = null) {
   if (!state) state = await getState();
   await inheritanceReady;
+  const whitelistRule = matchingRule(state.lists.whitelist, item.url, state.settings);
+  const stoppedRule = sourceTabId == null ? null : stoppedRuleTabs.get(sourceTabId);
+  const stopRuleForVisit = !!whitelistRule && stoppedRule === whitelistRule;
   let inheritedRule = null;
-  for (const visits of hiddenTabVisitRules.values()) {
+  for (const [tabId, visits] of hiddenTabVisitRules) {
     const rule = visits[item.url];
+    if (stoppedRuleTabs.get(tabId) === rule) continue;
     if (inheritanceEnabled(rule, state.settings)) {
       inheritedRule = rule;
       break;
@@ -463,6 +498,7 @@ async function handleVisit(item, state) {
   for (const tabId of new Set([...inheritedTabs.keys(), ...temporaryTabs])) {
     if (inheritedRule) break;
     const rule = tabHideRule(tabId);
+    if (stoppedRuleTabs.get(tabId) === rule) continue;
     if (!inheritanceEnabled(rule, state.settings)) continue;
     try {
       if ((await chrome.tabs.get(tabId)).url === item.url) {
@@ -497,7 +533,8 @@ async function handleVisit(item, state) {
     }
   }
   const { hide: ruleHide, saveVisit: ruleSaveVisit } = visitShouldBeHidden(item, state);
-  const hide = ruleHide || !!inheritedRule;
+  const effectiveRuleHide = stopRuleForVisit ? false : ruleHide;
+  const hide = effectiveRuleHide || !!inheritedRule;
   const saveVisit = inheritedRule
     ? state.settings.whitelistHistory?.[inheritedRule] !== false
     : ruleSaveVisit;
@@ -544,7 +581,7 @@ function queueCompletedTabVisit(tab) {
       ...historyItem,
       title: current.title || historyItem.title || url
     };
-    const hidden = await handleVisit(item);
+    const hidden = await handleVisit(item, undefined, id);
     if (hidden) {
       for (const redirectUrl of new Set(navigationUrls)) {
         if (redirectUrl !== url) await chrome.history.deleteUrl({ url: redirectUrl });
