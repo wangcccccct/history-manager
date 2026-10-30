@@ -224,6 +224,35 @@ async function inheritFromOpener(tab) {
   return inheritedRule || null;
 }
 
+async function inheritFromNavigationSource(sourceTabId, targetTabId, url) {
+  await inheritanceReady;
+  let rule = inheritedTabs.get(sourceTabId);
+  const pendingTrack = pendingTabTracks.get(sourceTabId);
+  const pendingInheritance = pendingTabInheritances.get(sourceTabId);
+  if (!rule && pendingTrack) {
+    await pendingTrack;
+    rule = inheritedTabs.get(sourceTabId);
+  }
+  if (!rule && pendingInheritance) {
+    await pendingInheritance;
+    rule = inheritedTabs.get(sourceTabId);
+  }
+  if (!rule) {
+    try {
+      const sourceTab = await chrome.tabs.get(sourceTabId);
+      const state = await getState();
+      rule = tabInheritanceForUrl(sourceTab.url || "", state);
+      if (rule) await setInheritedTab(sourceTabId, rule);
+    } catch {}
+  }
+  if (!rule) return;
+  await setInheritedTab(targetTabId, rule);
+  if (url) {
+    await recordTabNavigation({ id: targetTabId, url });
+    await setHiddenVisitRule(targetTabId, url, rule);
+  }
+}
+
 function scheduleOpenerInheritance(tab) {
   const pending = inheritFromOpener(tab).catch(error => {
     console.error("Could not inherit hidden-tab status:", tab.id, error);
@@ -327,6 +356,11 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId).then(refreshMenus).catch(() => {});
 });
 chrome.tabs.onCreated.addListener(scheduleOpenerInheritance);
+chrome.webNavigation.onCreatedNavigationTarget.addListener(details => {
+  void inheritFromNavigationSource(details.sourceTabId, details.tabId, details.url).catch(error => {
+    console.error("Could not inherit status for a linked tab:", details.tabId, error);
+  });
+});
 chrome.tabs.onUpdated.addListener((_, changeInfo, tab) => {
   if (changeInfo.url) {
     void refreshMenus(tab);

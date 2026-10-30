@@ -15,7 +15,7 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "history", "tabs", "contextMenus"],
+  "permissions": ["storage", "history", "tabs", "contextMenus", "webNavigation"],
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
