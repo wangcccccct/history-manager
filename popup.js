@@ -3,8 +3,6 @@ const status = document.querySelector("#status");
 const options = document.querySelector("#options");
 const temporaryStatus = document.querySelector("#temporary-status");
 const temporaryToggle = document.querySelector("#temporary-toggle");
-const globalRow = document.querySelector("#global-row");
-const temporaryRow = document.querySelector("#temporary-row");
 
 let activeTabId = null;
 let vaultReady = false;
@@ -20,7 +18,6 @@ async function updateTemporaryStatus() {
   if (activeTabId == null) {
     temporaryStatus.textContent = "No active tab available.";
     temporaryToggle.disabled = true;
-    temporaryRow.classList.add("ready");
     return;
   }
   try {
@@ -37,8 +34,6 @@ async function updateTemporaryStatus() {
     linkTrackingAvailable = false;
     temporaryStatus.textContent = "Background unavailable. Reload the extension.";
     temporaryToggle.disabled = true;
-  } finally {
-    temporaryRow.classList.add("ready");
   }
 }
 
@@ -48,7 +43,6 @@ chrome.storage.local.get({
 }).then(async ({ settings, vault }) => {
   applyTheme(settings.theme || "auto");
   enabled.checked = !!settings.enabled;
-  globalRow.classList.add("ready");
   vaultReady = !!vault.publicKey;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   activeTabId = tab?.id ?? null;
@@ -62,12 +56,12 @@ chrome.storage.local.get({
   }
   if (activeTabId == null || !vaultReady) temporaryToggle.disabled = true;
   await updateTemporaryStatus();
+  document.body.classList.remove("loading");
 }).catch(() => {
   status.textContent = "Could not load history settings.";
   enabled.disabled = true;
   temporaryToggle.disabled = true;
-  globalRow.classList.add("ready");
-  temporaryRow.classList.add("ready");
+  document.body.classList.remove("loading");
 });
 
 enabled.addEventListener("change", async () => {
