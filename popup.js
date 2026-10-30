@@ -3,6 +3,8 @@ const status = document.querySelector("#status");
 const options = document.querySelector("#options");
 const temporaryStatus = document.querySelector("#temporary-status");
 const temporaryToggle = document.querySelector("#temporary-toggle");
+const globalRow = document.querySelector("#global-row");
+const temporaryRow = document.querySelector("#temporary-row");
 
 let activeTabId = null;
 let vaultReady = false;
@@ -15,7 +17,12 @@ function applyTheme(theme) {
 }
 
 async function updateTemporaryStatus() {
-  if (activeTabId == null) return;
+  if (activeTabId == null) {
+    temporaryStatus.textContent = "No active tab available.";
+    temporaryToggle.disabled = true;
+    temporaryRow.classList.add("ready");
+    return;
+  }
   try {
     const result = await chrome.runtime.sendMessage({ type: "getTemporaryHideStatus", tabId: activeTabId });
     linkTrackingAvailable = !!result?.linkTrackingAvailable;
@@ -26,13 +33,12 @@ async function updateTemporaryStatus() {
     }
     const active = !!result.enabled;
     temporaryToggle.textContent = active ? "Stop" : "Hide";
-    temporaryStatus.textContent = active
-      ? "This tab and its new tabs are hidden."
-      : "This tab and tabs opened from it.";
   } catch {
     linkTrackingAvailable = false;
     temporaryStatus.textContent = "Background unavailable. Reload the extension.";
     temporaryToggle.disabled = true;
+  } finally {
+    temporaryRow.classList.add("ready");
   }
 }
 
@@ -42,6 +48,7 @@ chrome.storage.local.get({
 }).then(async ({ settings, vault }) => {
   applyTheme(settings.theme || "auto");
   enabled.checked = !!settings.enabled;
+  globalRow.classList.add("ready");
   vaultReady = !!vault.publicKey;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   activeTabId = tab?.id ?? null;
@@ -49,9 +56,9 @@ chrome.storage.local.get({
   if (!vaultReady) {
     enabled.disabled = true;
     temporaryToggle.disabled = true;
-    status.textContent = "Set a password in settings to enable history hiding.";
+    status.textContent = "Password needed";
   } else {
-    status.textContent = enabled.checked ? "New visits will be hidden." : "History hiding is off.";
+    status.textContent = enabled.checked ? "On" : "Off";
   }
   if (activeTabId == null || !vaultReady) temporaryToggle.disabled = true;
   await updateTemporaryStatus();
@@ -59,12 +66,14 @@ chrome.storage.local.get({
   status.textContent = "Could not load history settings.";
   enabled.disabled = true;
   temporaryToggle.disabled = true;
+  globalRow.classList.add("ready");
+  temporaryRow.classList.add("ready");
 });
 
 enabled.addEventListener("change", async () => {
   const { settings = {} } = await chrome.storage.local.get("settings");
   await chrome.storage.local.set({ settings: { ...settings, enabled: enabled.checked } });
-  status.textContent = enabled.checked ? "New visits will be hidden." : "History hiding is off.";
+  status.textContent = enabled.checked ? "On" : "Off";
 });
 
 temporaryToggle.addEventListener("click", async () => {
