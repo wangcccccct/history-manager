@@ -4,8 +4,8 @@
 <body>
   <main>
     <div class="brand"><span class="mark">H</span><div><strong>History Manager</strong><small>Browser history control</small></div></div>
-    <label class="switch-row"><span>Hide browser history</span><input id="enabled" type="checkbox"><i></i></label>
-    <p id="status"></p>
+    <label class="switch-row"><span><strong>Hide browser history</strong><small id="status"></small></span><input id="enabled" type="checkbox"><i></i></label>
+    <div class="temporary-row"><span><strong>Temporary hide</strong><small id="temporary-status">This tab and tabs opened from it.</small></span><button id="temporary-toggle" type="button">Hide</button></div>
     <button id="options">Open settings</button>
   </main>
   <script src="popup.js"></script>
