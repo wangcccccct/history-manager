@@ -371,7 +371,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!Number.isInteger(tabId)) throw new Error("No active tab was selected.");
     const current = temporaryTabs.has(tabId);
     const linkTrackingAvailable = !!chrome.webNavigation?.onCreatedNavigationTarget;
-    if (message.type === "getTemporaryHideStatus") return { enabled: current, linkTrackingAvailable };
+    if (message.type === "getTemporaryHideStatus") {
+      const tab = await chrome.tabs.get(tabId);
+      const state = await getState();
+      const ruleHidden = !!tabHideRule(tabId) || !!tabInheritanceForUrl(tab.url || "", state);
+      return { enabled: current || ruleHidden, linkTrackingAvailable };
+    }
     if (!linkTrackingAvailable) throw new Error("Reload the extension to grant webNavigation permission.");
 
     const state = await getState();
