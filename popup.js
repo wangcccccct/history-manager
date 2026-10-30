@@ -15,7 +15,8 @@ chrome.storage.local.get({
   }
 });
 enabled.addEventListener("change", async () => {
-  await chrome.storage.local.set({ settings: { enabled: enabled.checked } });
+  const { settings = {} } = await chrome.storage.local.get("settings");
+  await chrome.storage.local.set({ settings: { ...settings, enabled: enabled.checked } });
   status.textContent = enabled.checked ? "New visits will be hidden." : "History hiding is off.";
 });
 options.addEventListener("click", () => chrome.runtime.openOptionsPage());

@@ -5,7 +5,7 @@ const MENU = {
 };
 
 const DEFAULTS = {
-  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto", historyLimit: 100 },
+  settings: { enabled: false, whitelistHistory: {}, inheritTabs: {}, ruleNames: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto", historyLimit: 100 },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -127,6 +127,43 @@ function matchingRule(list, url, settings) {
   return list.find(rule => ruleMatches(rule, url, settings));
 }
 
+const inheritedTabs = new Map();
+const inheritanceReady = chrome.storage.session.get("inheritedTabs").then(({ inheritedTabs: saved = {} }) => {
+  for (const [tabId, rule] of Object.entries(saved)) inheritedTabs.set(Number(tabId), rule);
+});
+
+async function setInheritedTab(tabId, rule) {
+  await inheritanceReady;
+  inheritedTabs.set(tabId, rule);
+  await chrome.storage.session.set({ inheritedTabs: Object.fromEntries(inheritedTabs) });
+}
+
+async function removeInheritedTab(tabId) {
+  await inheritanceReady;
+  inheritedTabs.delete(tabId);
+  await chrome.storage.session.set({ inheritedTabs: Object.fromEntries(inheritedTabs) });
+}
+
+function tabInheritanceForUrl(url, state) {
+  const rule = matchingRule(state.lists.whitelist, url, state.settings);
+  return rule && state.settings.inheritTabs?.[rule] ? rule : null;
+}
+
+async function inheritFromOpener(tab) {
+  await inheritanceReady;
+  if (tab.openerTabId == null) return;
+  let inheritedRule = inheritedTabs.get(tab.openerTabId);
+  if (!inheritedRule) {
+    try {
+      const opener = await chrome.tabs.get(tab.openerTabId);
+      const state = await getState();
+      inheritedRule = tabInheritanceForUrl(opener.url || "", state);
+      if (inheritedRule) await setInheritedTab(opener.id, inheritedRule);
+    } catch {}
+  }
+  if (inheritedRule) await setInheritedTab(tab.id, inheritedRule);
+}
+
 async function refreshMenus(tab) {
   const state = await getState();
   const domain = domainOf(tab?.url || "");
@@ -190,15 +227,22 @@ async function trimHiddenHistory() {
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId).then(refreshMenus).catch(() => {});
 });
+chrome.tabs.onCreated.addListener(tab => { void inheritFromOpener(tab); });
 chrome.tabs.onUpdated.addListener((_, changeInfo, tab) => {
   if (changeInfo.url) void refreshMenus(tab);
   if (changeInfo.status === "complete" && tab.url) {
+    void (async () => {
+      const state = await getState();
+      const rule = tabInheritanceForUrl(tab.url, state);
+      if (rule) await setInheritedTab(tab.id, rule);
+    })();
     try {
       const protocol = new URL(tab.url).protocol;
       if (!["http:", "https:"].includes(protocol)) queueSpecialUrlHistory(tab);
     } catch {}
   }
 });
+chrome.tabs.onRemoved.addListener(tabId => { void removeInheritedTab(tabId); });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const state = await getState();
@@ -223,6 +267,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     delete state.settings.ruleRegex[removed];
     delete state.settings.ruleTypes[removed];
     delete state.settings.whitelistHistory[removed];
+    delete state.settings.inheritTabs[removed];
+    delete state.settings.ruleNames[removed];
   }
   else {
     list.push(domain);
@@ -249,7 +295,37 @@ function visitShouldBeHidden(item, state) {
 
 async function handleVisit(item, state) {
   if (!state) state = await getState();
-  const { hide, saveVisit } = visitShouldBeHidden(item, state);
+  await inheritanceReady;
+  let inheritedRule = null;
+  for (const [tabId, rule] of inheritedTabs) {
+    if (!state.settings.inheritTabs?.[rule]) continue;
+    try {
+      if ((await chrome.tabs.get(tabId)).url === item.url) {
+        inheritedRule = rule;
+        break;
+      }
+    } catch {
+      await removeInheritedTab(tabId);
+    }
+  }
+  if (!inheritedRule) {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.url !== item.url) continue;
+      const ownRule = tabInheritanceForUrl(tab.url, state);
+      if (ownRule) await setInheritedTab(tab.id, ownRule);
+      else await inheritFromOpener(tab);
+      if (inheritedTabs.has(tab.id) && state.settings.inheritTabs?.[inheritedTabs.get(tab.id)]) {
+        inheritedRule = inheritedTabs.get(tab.id);
+        break;
+      }
+    }
+  }
+  const { hide: ruleHide, saveVisit: ruleSaveVisit } = visitShouldBeHidden(item, state);
+  const hide = ruleHide || !!inheritedRule;
+  const saveVisit = inheritedRule
+    ? state.settings.whitelistHistory?.[inheritedRule] !== false
+    : ruleSaveVisit;
   if (!hide) return false;
   if (saveVisit && !state.vault.publicKey) {
     console.warn("Skipped deleting matching history because hidden-history password setup is incomplete.");

@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const DEFAULTS = {
-  settings: { enabled: false, whitelistHistory: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto", historyLimit: 100 },
+  settings: { enabled: false, whitelistHistory: {}, inheritTabs: {}, ruleNames: {}, ruleTypes: {}, ruleRegex: {}, theme: "auto", historyLimit: 100 },
   lists: { blacklist: [], whitelist: [] },
   vault: { publicKey: "", encryptedPrivateKey: "", records: [] }
 };
@@ -8,6 +8,7 @@ const DEFAULTS = {
 let state = structuredClone(DEFAULTS);
 let activeTab = "blacklist";
 let privateKey = null;
+let editingRule = null;
 
 function encode(value) {
   return btoa(String.fromCharCode(...new Uint8Array(value)));
@@ -157,8 +158,11 @@ async function load() {
     vault: { ...DEFAULTS.vault, ...data.vault }
   };
   state.settings.whitelistHistory = { ...(state.settings.whitelistHistory || {}) };
+  state.settings.inheritTabs = { ...(state.settings.inheritTabs || {}) };
+  state.settings.ruleNames = { ...(state.settings.ruleNames || {}) };
   state.settings.ruleTypes = { ...(state.settings.ruleTypes || {}) };
   state.settings.historyLimit = normalizeHistoryLimit(state.settings.historyLimit);
+  applyTheme();
   for (const [rule, isRegex] of Object.entries(state.settings.ruleRegex || {})) {
     if (isRegex && !state.settings.ruleTypes[rule]) state.settings.ruleTypes[rule] = "regex";
   }
@@ -194,7 +198,7 @@ async function render() {
   $("[data-tab=whitelist]").classList.toggle("active", activeTab === "whitelist");
   const domains = state.lists[activeTab];
   $("#domains").innerHTML = domains.length
-    ? domains.map(rule => `<div class="domain-row"><span>${escapeHtml(rule)}</span><select class="rule-type-select" data-rule-type="${escapeHtml(rule)}" aria-label="Match type for ${escapeHtml(rule)}"><option value="domain" ${(state.settings.ruleTypes[rule] || "domain") === "domain" ? "selected" : ""}>Domain</option><option value="regex" ${state.settings.ruleTypes[rule] === "regex" ? "selected" : ""}>Regex</option><option value="keyword" ${state.settings.ruleTypes[rule] === "keyword" ? "selected" : ""}>Keyword</option></select>${activeTab === "whitelist" ? `<label class="domain-history-option"><input type="checkbox" data-whitelist-history="${escapeHtml(rule)}" ${state.settings.whitelistHistory[rule] === false ? "" : "checked"}><small>Save visits</small></label>` : ""}<button data-remove="${escapeHtml(rule)}" title="Remove rule">Remove</button></div>`).join("")
+    ? domains.map(rule => `<div class="domain-row"><span>${escapeHtml(state.settings.ruleNames[rule] || rule)}</span><button data-edit="${escapeHtml(rule)}">Edit</button></div>`).join("")
     : '<div class="empty">No domains in this list.</div>';
 
   if (!state.vault.records.length) {
@@ -303,22 +307,6 @@ document.querySelectorAll("[data-tab]").forEach(button => button.addEventListene
   activeTab = button.dataset.tab;
   void render();
 }));
-$("#domains").addEventListener("click", async event => {
-  const rule = event.target.dataset.remove;
-  if (!rule) return;
-  state.lists[activeTab] = state.lists[activeTab].filter(item => item !== rule);
-  delete state.settings.whitelistHistory[rule];
-  delete state.settings.ruleTypes[rule];
-  await saveRules();
-});
-$("#domains").addEventListener("change", async event => {
-  const historyRule = event.target.dataset.whitelistHistory;
-  const typedRule = event.target.dataset.ruleType;
-  if (historyRule) state.settings.whitelistHistory[historyRule] = event.target.checked;
-  else if (typedRule) state.settings.ruleTypes[typedRule] = event.target.value;
-  else return;
-  await saveRules();
-});
 $("#clear-history").addEventListener("click", async () => {
   state.vault.records = [];
   await chrome.storage.local.set({ vault: state.vault });
@@ -331,7 +319,13 @@ $("#history-limit").addEventListener("change", async () => {
   await render();
 });
 $("#add").addEventListener("click", () => {
+  editingRule = null;
+  $("#dialog-title").textContent = "Add rule";
+  $("#confirm").textContent = "Add rule";
+  $("#kind").hidden = false;
+  $("#edit-options").hidden = true;
   $("#domain").value = "";
+  $("#rule-name").value = "";
   $("#domain").placeholder = "example.com, a keyword, or a full-URL regular expression";
   $("#kind").value = activeTab;
   $("#rule-type").value = "domain";
@@ -353,6 +347,9 @@ $("#rule-type").addEventListener("change", () => {
   $("#domain").placeholder = placeholders[$("#rule-type").value];
   $("#rule-type-help").textContent = descriptions[$("#rule-type").value];
   $("#domain-error").textContent = "";
+});
+$("#kind").addEventListener("change", () => {
+  if (editingRule !== null) $("#edit-options").hidden = $("#kind").value !== "whitelist";
 });
 $("#domain-form").addEventListener("submit", async event => {
   event.preventDefault();
@@ -396,14 +393,77 @@ $("#domain-form").addEventListener("submit", async event => {
     }
   }
   const kind = $("#kind").value;
+  if (editingRule !== null) {
+    const originalRule = editingRule;
+    const originalKind = activeTab;
+    state.lists[originalKind] = state.lists[originalKind].filter(item => item !== originalRule);
+    state.lists.blacklist = state.lists.blacklist.filter(item => item !== rule);
+    state.lists.whitelist = state.lists.whitelist.filter(item => item !== rule);
+    state.lists[kind].push(rule);
+    for (const key of ["ruleTypes", "whitelistHistory", "inheritTabs", "ruleNames"]) {
+      if (key in state.settings && originalRule !== rule) {
+        if (originalRule in state.settings[key]) state.settings[key][rule] = state.settings[key][originalRule];
+        delete state.settings[key][originalRule];
+      }
+    }
+    state.settings.ruleTypes[rule] = type;
+    const name = $("#rule-name").value.trim();
+    if (name) state.settings.ruleNames[rule] = name;
+    else delete state.settings.ruleNames[rule];
+    if (kind === "whitelist") {
+      state.settings.whitelistHistory[rule] = $("#edit-whitelist-history").checked;
+      state.settings.inheritTabs[rule] = $("#edit-inherit-tabs").checked;
+    } else {
+      delete state.settings.whitelistHistory[rule];
+      delete state.settings.inheritTabs[rule];
+    }
+    editingRule = null;
+    $("#dialog").close();
+    await saveRules();
+    return;
+  }
   state.lists.blacklist = state.lists.blacklist.filter(item => item !== rule);
   state.lists.whitelist = state.lists.whitelist.filter(item => item !== rule);
   state.settings.ruleTypes[rule] = type;
+  const name = $("#rule-name").value.trim();
+  if (name) state.settings.ruleNames[rule] = name;
+  else delete state.settings.ruleNames[rule];
   if (kind === "whitelist" && !(rule in state.settings.whitelistHistory)) {
     state.settings.whitelistHistory[rule] = true;
   }
   state.lists[kind].push(rule);
   activeTab = kind;
+  $("#dialog").close();
+  await saveRules();
+});
+
+$("#domains").addEventListener("click", event => {
+  const rule = event.target.dataset.edit;
+  if (!rule) return;
+  editingRule = rule;
+  $("#dialog-title").textContent = "Edit rule";
+  $("#confirm").textContent = "Save changes";
+  $("#kind").hidden = false;
+  $("#kind").value = activeTab;
+  $("#rule-type").value = state.settings.ruleTypes[rule] || "domain";
+  $("#domain").value = rule;
+  $("#rule-name").value = state.settings.ruleNames[rule] || "";
+  $("#domain").placeholder = "Rule value";
+  $("#domain-error").textContent = "";
+  $("#edit-options").hidden = activeTab !== "whitelist";
+  $("#edit-whitelist-history").checked = state.settings.whitelistHistory[rule] !== false;
+  $("#edit-inherit-tabs").checked = !!state.settings.inheritTabs[rule];
+  $("#rule-type").dispatchEvent(new Event("change"));
+  $("#dialog").showModal();
+});
+$("#remove-rule").addEventListener("click", async () => {
+  if (editingRule === null) return;
+  state.lists[activeTab] = state.lists[activeTab].filter(item => item !== editingRule);
+  delete state.settings.whitelistHistory[editingRule];
+  delete state.settings.ruleTypes[editingRule];
+  delete state.settings.inheritTabs[editingRule];
+  delete state.settings.ruleNames[editingRule];
+  editingRule = null;
   $("#dialog").close();
   await saveRules();
 });
