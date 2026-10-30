@@ -234,10 +234,21 @@ async function inheritFromNavigationSource(sourceTabId, targetTabId, url) {
   const stoppedRule = stoppedRuleTabs.get(sourceTabId);
   const state = await getState();
   if (stoppedRule) {
-    if (tabInheritanceForUrl(url || "", state) === stoppedRule) {
-      await setStoppedRuleTab(targetTabId, stoppedRule);
+    let sourceTab;
+    try {
+      sourceTab = await chrome.tabs.get(sourceTabId);
+    } catch (error) {
+      console.error("Could not read the source tab while checking its stopped rule:", sourceTabId, error);
+      return;
     }
-    return;
+    const sourceRule = tabInheritanceForUrl(sourceTab?.url || "", state);
+    if (sourceRule === stoppedRule) {
+      if (tabInheritanceForUrl(url || "", state) === stoppedRule) {
+        await setStoppedRuleTab(targetTabId, stoppedRule);
+      }
+      return;
+    }
+    await setStoppedRuleTab(sourceTabId, null);
   }
   let rule = tabHideRule(sourceTabId);
   const pendingTrack = pendingTabTracks.get(sourceTabId);
@@ -258,18 +269,25 @@ async function inheritFromNavigationSource(sourceTabId, targetTabId, url) {
   if (url) {
     await recordTabNavigation({ id: targetTabId, url });
     await setHiddenVisitRule(targetTabId, url, rule);
+    try {
+      const targetTab = await chrome.tabs.get(targetTabId);
+      if (targetTab.status === "complete") queueCompletedTabVisit(targetTab);
+    } catch (error) {
+      console.error("Could not recheck an inherited target tab:", targetTabId, error);
+    }
   }
 }
 
 async function trackTabVisit(tab) {
   await inheritanceReady;
   let rule = tabHideRule(tab.id);
-  if (!rule) {
-    const state = await getState();
-    rule = tabInheritanceForUrl(tab.url || "", state);
-    if (rule && stoppedRuleTabs.get(tab.id) === rule) rule = null;
-    if (rule) await setInheritedTab(tab.id, rule);
-  }
+  const state = await getState();
+  const urlRule = tabInheritanceForUrl(tab.url || "", state);
+  const stoppedRule = stoppedRuleTabs.get(tab.id);
+  if (stoppedRule && stoppedRule !== urlRule) await setStoppedRuleTab(tab.id, null);
+  if (!rule) rule = urlRule;
+  if (rule && stoppedRuleTabs.get(tab.id) === rule) rule = null;
+  if (rule && !tabHideRule(tab.id)) await setInheritedTab(tab.id, rule);
   if (rule) await setHiddenVisitRule(tab.id, tab.url, rule);
   return rule || null;
 }
