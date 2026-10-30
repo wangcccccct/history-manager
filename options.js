@@ -396,10 +396,14 @@ $("#domain-form").addEventListener("submit", async event => {
   if (editingRule !== null) {
     const originalRule = editingRule;
     const originalKind = activeTab;
+    const originalIndex = state.lists[originalKind].indexOf(originalRule);
     state.lists[originalKind] = state.lists[originalKind].filter(item => item !== originalRule);
     state.lists.blacklist = state.lists.blacklist.filter(item => item !== rule);
     state.lists.whitelist = state.lists.whitelist.filter(item => item !== rule);
-    state.lists[kind].push(rule);
+    const insertAt = kind === originalKind
+      ? Math.min(Math.max(originalIndex, 0), state.lists[kind].length)
+      : state.lists[kind].length;
+    state.lists[kind].splice(insertAt, 0, rule);
     for (const key of ["ruleTypes", "whitelistHistory", "inheritTabs", "ruleNames"]) {
       if (key in state.settings && originalRule !== rule) {
         if (originalRule in state.settings[key]) state.settings[key][rule] = state.settings[key][originalRule];
