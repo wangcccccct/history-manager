@@ -15,11 +15,7 @@ function applyTheme(theme) {
 }
 
 async function updateTemporaryStatus() {
-  if (activeTabId == null) {
-    temporaryStatus.textContent = "No active tab available.";
-    temporaryToggle.disabled = true;
-    return;
-  }
+  if (activeTabId == null) return;
   try {
     const result = await chrome.runtime.sendMessage({ type: "getTemporaryHideStatus", tabId: activeTabId });
     linkTrackingAvailable = !!result?.linkTrackingAvailable;
@@ -30,6 +26,9 @@ async function updateTemporaryStatus() {
     }
     const active = !!result.enabled;
     temporaryToggle.textContent = active ? "Stop" : "Hide";
+    temporaryStatus.textContent = active
+      ? "This tab and its new tabs are hidden."
+      : "This tab and tabs opened from it.";
   } catch {
     linkTrackingAvailable = false;
     temporaryStatus.textContent = "Background unavailable. Reload the extension.";
@@ -50,24 +49,22 @@ chrome.storage.local.get({
   if (!vaultReady) {
     enabled.disabled = true;
     temporaryToggle.disabled = true;
-    status.textContent = "Password needed";
+    status.textContent = "Set a password in settings to enable history hiding.";
   } else {
-    status.textContent = enabled.checked ? "On" : "Off";
+    status.textContent = enabled.checked ? "New visits will be hidden." : "History hiding is off.";
   }
   if (activeTabId == null || !vaultReady) temporaryToggle.disabled = true;
   await updateTemporaryStatus();
-  document.body.classList.remove("loading");
 }).catch(() => {
   status.textContent = "Could not load history settings.";
   enabled.disabled = true;
   temporaryToggle.disabled = true;
-  document.body.classList.remove("loading");
 });
 
 enabled.addEventListener("change", async () => {
   const { settings = {} } = await chrome.storage.local.get("settings");
   await chrome.storage.local.set({ settings: { ...settings, enabled: enabled.checked } });
-  status.textContent = enabled.checked ? "On" : "Off";
+  status.textContent = enabled.checked ? "New visits will be hidden." : "History hiding is off.";
 });
 
 temporaryToggle.addEventListener("click", async () => {
