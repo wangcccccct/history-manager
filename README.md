@@ -8,6 +8,8 @@ This project was inspired by [Hide My History](https://github.com/monokaijs/hide
 
 The eye icon is adapted from [GitLab SVGs](https://gitlab.com/gitlab-org/gitlab-svgs), licensed under MIT. Its colors are adapted for this extension.
 
+Thanks to the Linux.do community for its support.
+
 ## Features
 
 - A lightweight Manifest V3 extension built with plain JavaScript, HTML, and CSS. No package installation or build step is required.
