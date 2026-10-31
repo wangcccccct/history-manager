@@ -42,7 +42,7 @@ Domain rules match the selected host and its subdomains. Regular-expression and 
 
 The private key is encrypted with a key derived from your password using PBKDF2 and AES-GCM. Each hidden visit is encrypted with AES-GCM, and its data key is protected with the corresponding RSA public key.
 
-The password is not stored. If you forget it, encrypted hidden visits cannot be recovered. This protects locally stored extension data; it does not replace a separate operating-system account or protect against a compromised browser profile.
+The password is not stored. If you forget it, encrypted hidden visits cannot be recovered.
 
 See [Privacy](PRIVACY.md) for data handling details and the permissions this extension uses.
 
