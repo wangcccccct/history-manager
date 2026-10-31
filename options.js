@@ -9,6 +9,7 @@ let state = structuredClone(DEFAULTS);
 let activeTab = "blacklist";
 let privateKey = null;
 let editingRule = null;
+let decryptedHistory = null;
 
 function encode(value) {
   return btoa(String.fromCharCode(...new Uint8Array(value)));
@@ -126,6 +127,8 @@ async function decryptRecord(record) {
 
 function setAuthView(mode, message = "") {
   const setup = mode === "setup";
+  decryptedHistory = null;
+  $("#history-search").value = "";
   $("#history").replaceChildren();
   document.body.classList.add("locked");
   $("#auth").hidden = false;
@@ -201,19 +204,38 @@ async function render() {
     ? domains.map(rule => `<div class="domain-row"><span>${escapeHtml(state.settings.ruleNames[rule] || rule)}</span><button data-edit="${escapeHtml(rule)}">Edit</button></div>`).join("")
     : '<div class="empty">No domains in this list.</div>';
 
+  await renderHistory();
+}
+
+async function renderHistory() {
+  const history = $("#history");
   if (!state.vault.records.length) {
-    $("#history").innerHTML = '<div class="empty">No hidden visits yet.</div>';
+    decryptedHistory = [];
+    history.innerHTML = '<div class="empty">No hidden visits yet.</div>';
     return;
   }
-  const results = await Promise.allSettled(state.vault.records.map(decryptRecord));
-  $("#history").innerHTML = results.map(result => {
-    if (result.status === "rejected") return '<div class="history-row">Unable to decrypt this visit.</div>';
-    const item = result.value;
+  if (decryptedHistory === null) {
+    const results = await Promise.allSettled(state.vault.records.map(decryptRecord));
+    decryptedHistory = results.map((result, index) => ({
+      index,
+      item: result.status === "fulfilled" ? result.value : null
+    }));
+  }
+  const query = $("#history-search").value.trim().toLocaleLowerCase();
+  const matches = decryptedHistory.filter(({ item }) => !query || !item ||
+    `${item.title || ""}\n${item.url || ""}`.toLocaleLowerCase().includes(query));
+  if (!matches.length) {
+    history.innerHTML = '<div class="empty">No visits match your search.</div>';
+    return;
+  }
+  history.innerHTML = matches.map(({ index, item }) => {
+    const removeButton = `<button class="history-delete" type="button" data-remove-history="${index}" aria-label="Remove this hidden visit">Remove</button>`;
+    if (!item) return `<div class="history-row"><div class="history-entry"><span>Unable to decrypt this visit.</span></div>${removeButton}</div>`;
     const title = escapeHtml(item.title || item.url);
     const link = canOpenHistoryUrl(item.url)
       ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${title}</a>`
       : `<span>${title}</span>`;
-    return `<div class="history-row">${link}<time>${new Date(item.time).toLocaleString()}</time></div>`;
+    return `<div class="history-row"><div class="history-entry">${link}<time>${new Date(item.time).toLocaleString()}</time></div>${removeButton}</div>`;
   }).join("");
 }
 
@@ -309,12 +331,26 @@ document.querySelectorAll("[data-tab]").forEach(button => button.addEventListene
 }));
 $("#clear-history").addEventListener("click", async () => {
   state.vault.records = [];
+  decryptedHistory = [];
+  await chrome.storage.local.set({ vault: state.vault });
+  await render();
+});
+$("#history-search").addEventListener("input", () => void renderHistory());
+$("#history").addEventListener("click", async event => {
+  const button = event.target.closest("[data-remove-history]");
+  if (!button) return;
+  const index = Number(button.dataset.removeHistory);
+  if (!Number.isInteger(index) || index < 0 || index >= state.vault.records.length) return;
+  button.disabled = true;
+  state.vault.records.splice(index, 1);
+  decryptedHistory = null;
   await chrome.storage.local.set({ vault: state.vault });
   await render();
 });
 $("#history-limit").addEventListener("change", async () => {
   state.settings.historyLimit = normalizeHistoryLimit($("#history-limit").value);
   state.vault.records = state.vault.records.slice(0, state.settings.historyLimit);
+  decryptedHistory = null;
   await chrome.storage.local.set({ settings: state.settings, vault: state.vault });
   await render();
 });

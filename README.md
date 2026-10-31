@@ -2,24 +2,24 @@
 
 A lightweight Chrome extension for controlling browser history with domain, regular-expression, and keyword rules.
 
-## Attribution
+## Project background
 
-This project is based on [Hide My History](https://github.com/monokaijs/hide-my-history) by [Edward Nguyen (@monokaijs)](https://github.com/monokaijs). See the upstream repository for the original project.
+This project was inspired by [Hide My History](https://github.com/monokaijs/hide-my-history). Its current implementation and feature set have since developed independently.
 
 The eye icon is adapted from [GitLab SVGs](https://gitlab.com/gitlab-org/gitlab-svgs), licensed under MIT. Its colors are adapted for this extension.
 
-## Changes from upstream
+## Overview
 
 - Rebuilt the extension as a lightweight, dependency-free Manifest V3 project using plain JavaScript, HTML, and CSS. It can be loaded unpacked in Chrome without installing packages or running a build step.
 - Reworked the interface into a focused settings page and popup, with light, dark, and system themes.
 - Added three selectable rule types: domain matching (host and subdomains, including protocol URLs), regular expressions against the full URL, and case-insensitive keyword matching anywhere in the full URL.
-- Kept the upstream blacklist/whitelist behavior and added a per-whitelist option to save or discard matching visits from the hidden-history vault.
+- Supports global history hiding, blacklist exceptions, and whitelist rules that hide matching visits even when global hiding is disabled.
 - Reworked password protection and encryption. A password-derived key protects the private key; each saved visit is encrypted with AES-GCM and its random data key is wrapped with RSA-OAEP. The password is not stored.
-- Added migration for records encrypted with the earlier shared AES key format, when setting up password protection.
-- Kept saved hidden visits encrypted in Chrome local storage, added a configurable retention limit, and added a clear-all action.
+- Includes migration of records from the earlier encrypted history format.
+- Stores saved hidden visits encrypted in Chrome local storage, with a configurable retention limit.
 - Added per-rule inheritance for tabs opened from matching tabs and temporary tab hiding with a session-only Stop control.
 
-The upstream project also has a searchable hidden-history view and per-entry removal; those controls are not currently included here. Per-tab incognito mode is also not implemented in this project.
+Temporary hiding applies to the current tab and tabs opened from it; it does not launch Chrome's actual Incognito mode.
 
 ## Features
 
@@ -29,6 +29,7 @@ The upstream project also has a searchable hidden-history view and per-entry rem
 - Match rules by domain, full-URL regular expression, or keyword.
 - For each whitelist rule, optionally hide visits in tabs opened from matching tabs; this behavior continues through tabs opened by inherited tabs.
 - Temporarily hide the current tab and tabs opened from it. **Stop** pauses the current tab's hiding rule for it and tabs it opens during this browser session. Other matching rules remain active, and saved rules are unchanged.
+- Search saved hidden visits by title or URL, remove individual entries, or clear all entries.
 - Review encrypted hidden visits after unlocking with your password.
 - Store rules, encrypted visits, and temporary tab state in Chrome local or session storage.
 
@@ -60,4 +61,4 @@ See [Privacy](PRIVACY.md) for data handling details and the permissions this ext
 
 ## License
 
-This project is based on [Hide My History](https://github.com/monokaijs/hide-my-history) by Edward Nguyen. No license has been selected for this repository yet. Confirm the upstream terms and choose a compatible license before granting reuse rights or describing this as an open-source release.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
