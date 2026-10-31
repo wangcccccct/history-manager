@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "History Manager",
   "version": "1.0.0",
-  "description": "Manage hidden browsing history with simple domain rules.",
+  "description": "Hide browsing history with rules and temporary tab controls. Saved visits are encrypted locally.",
   "action": {
     "default_title": "History Manager",
     "default_popup": "popup.html",
