@@ -8,34 +8,28 @@ This project was inspired by [Hide My History](https://github.com/monokaijs/hide
 
 The eye icon is adapted from [GitLab SVGs](https://gitlab.com/gitlab-org/gitlab-svgs), licensed under MIT. Its colors are adapted for this extension.
 
-## Overview
-
-- Rebuilt the extension as a lightweight, dependency-free Manifest V3 project using plain JavaScript, HTML, and CSS. It can be loaded unpacked in Chrome without installing packages or running a build step.
-- Reworked the interface into a focused settings page and popup, with light, dark, and system themes.
-- Added three selectable rule types: domain matching (host and subdomains, including protocol URLs), regular expressions against the full URL, and case-insensitive keyword matching anywhere in the full URL.
-- Supports global history hiding, blacklist exceptions, and whitelist rules that hide matching visits even when global hiding is disabled.
-- Reworked password protection and encryption. A password-derived key protects the private key; each saved visit is encrypted with AES-GCM and its random data key is wrapped with RSA-OAEP. The password is not stored.
-- Includes migration of records from the earlier encrypted history format.
-- Stores saved hidden visits encrypted in Chrome local storage, with a configurable retention limit.
-- Added per-rule inheritance for tabs opened from matching tabs and temporary tab hiding with a session-only Stop control.
-
-Temporary hiding applies to the current tab and tabs opened from it; it does not launch Chrome's actual Incognito mode.
-
 ## Features
 
+- A lightweight Manifest V3 extension built with plain JavaScript, HTML, and CSS. No package installation or build step is required.
+- A settings page and popup with light, dark, and system themes.
 - Hide new visits globally or only for selected domains.
 - Keep selected domains in normal browser history with a blacklist.
+- Whitelist rules hide matching visits even when global hiding is disabled.
 - Manage domain rules from the options page or the page context menu.
 - Match rules by domain, full-URL regular expression, or keyword.
 - For each whitelist rule, optionally hide visits in tabs opened from matching tabs; this behavior continues through tabs opened by inherited tabs.
-- Temporarily hide the current tab and tabs opened from it. **Stop** pauses the current tab's hiding rule for it and tabs it opens during this browser session. Other matching rules remain active, and saved rules are unchanged.
+- Temporarily hide the current tab and tabs opened from it. **Stop** pauses hiding for that tab and its descendants for the current browser session without changing saved rules. This does not launch Chrome's Incognito mode.
 - Search saved hidden visits by title or URL, remove individual entries, or clear all entries.
-- Review encrypted hidden visits after unlocking with your password.
-- Store rules, encrypted visits, and temporary tab state in Chrome local or session storage.
+- Review encrypted hidden visits after unlocking with your password. A password-derived key protects the private key; each saved visit is encrypted with AES-GCM and its data key is wrapped with RSA-OAEP. The password is not stored.
+- Migrate records from the earlier encrypted history format.
+- Store rules and encrypted visits in Chrome local storage, with configurable history retention; temporary tab state uses session storage.
 
 ## Install
 
-See the [Chrome installation guide in Chinese](INSTALL.md). After downloading and extracting the project, enable Developer mode at `chrome://extensions`, then choose the folder containing `manifest.json` with **Load unpacked**.
+Download the project ZIP from GitHub and extract it.
+
+1. Open Chrome's Extensions page at `chrome://extensions` and turn on **Developer mode**.
+2. Click **Load unpacked** and select the extracted project folder that contains `manifest.json`. The extension loads as soon as you select the folder.
 
 ## Domain rules
 
