@@ -34,10 +34,7 @@ The upstream project also has a searchable hidden-history view and per-entry rem
 
 ## Install
 
-1. Open `chrome://extensions` in Chrome.
-2. Enable **Developer mode**.
-3. Select **Load unpacked** and choose this project directory.
-4. Open the extension options page and create a password.
+See the [Chrome installation guide in Chinese](INSTALL.md). After downloading and extracting the project, enable Developer mode at `chrome://extensions`, then choose the folder containing `manifest.json` with **Load unpacked**.
 
 ## Domain rules
 
@@ -60,10 +57,6 @@ See [Privacy](PRIVACY.md) for data handling details and the permissions this ext
 - `tabs` and `webNavigation`: identify tabs and detect tabs opened from a hidden tab so the rule can be inherited.
 - `storage`: save settings and encrypted hidden visits locally, and keep temporary tab state for the current browser session.
 - `contextMenus`: provide controls for history hiding and domain rules in the page context menu.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the local development and review steps. The extension has no package installation or build step.
 
 ## License
 
