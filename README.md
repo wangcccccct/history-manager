@@ -44,8 +44,6 @@ The private key is encrypted with a key derived from your password using PBKDF2 
 
 The password is not stored. If you forget it, encrypted hidden visits cannot be recovered.
 
-See [Privacy](PRIVACY.md) for data handling details and the permissions this extension uses.
-
 ## Permissions
 
 - `history`: find and remove visits that match the enabled hiding behavior.
