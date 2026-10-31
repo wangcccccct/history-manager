@@ -6,6 +6,8 @@ A lightweight Chrome extension for controlling browser history with domain, regu
 
 This project is based on [Hide My History](https://github.com/monokaijs/hide-my-history) by [Edward Nguyen (@monokaijs)](https://github.com/monokaijs). See the upstream repository for the original project.
 
+The eye icon is adapted from [GitLab SVGs](https://gitlab.com/gitlab-org/gitlab-svgs), licensed under MIT. Its colors are adapted for this extension.
+
 ## Changes from upstream
 
 - Rebuilt the extension as a lightweight, dependency-free Manifest V3 project using plain JavaScript, HTML, and CSS. It can be loaded unpacked in Chrome without installing packages or running a build step.
