@@ -8,7 +8,7 @@ This project was inspired by [Hide My History](https://github.com/monokaijs/hide
 
 The eye icon is adapted from [GitLab SVGs](https://gitlab.com/gitlab-org/gitlab-svgs), licensed under MIT. Its colors are adapted for this extension.
 
-Thanks to the Linux.do community for its support.
+Thanks to the [Linux.do](https://linux.do) community for its support.
 
 ## Features
 
